@@ -1,7 +1,7 @@
 from __future__ import absolute_import, division, print_function
 from collections import OrderedDict
 from layers import *
-from timm.models.layers import trunc_normal_
+from timm.layers import trunc_normal_
 
 
 class DepthDecoder(nn.Module):
@@ -27,7 +27,7 @@ class DepthDecoder(nn.Module):
             # upconv_1
             num_ch_in = self.num_ch_dec[i]
             if self.use_skips and i > 0:
-                num_ch_in += self.num_ch_enc[i - 1]
+                num_ch_in += (self.num_ch_enc[i - 1])
             num_ch_out = self.num_ch_dec[i]
             self.convs[("upconv", i, 1)] = ConvBlock(num_ch_in, num_ch_out)
 
@@ -44,6 +44,7 @@ class DepthDecoder(nn.Module):
             trunc_normal_(m.weight, std=.02)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
+
 
     def forward(self, input_features):
         self.outputs = {}
@@ -62,4 +63,4 @@ class DepthDecoder(nn.Module):
                 self.outputs[("disp", i)] = self.sigmoid(f)
 
         return self.outputs
-
+    

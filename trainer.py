@@ -15,8 +15,8 @@ from layers import *
 import datasets
 import networks
 from linear_warmup_cosine_annealing_warm_restarts_weight_decay import ChainedScheduler
-
-
+# from augmentation import AugmentationOps
+from thop import profile
 # torch.backends.cudnn.benchmark = True
 
 
@@ -55,13 +55,15 @@ class Trainer:
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
 
+        # self.augmentation_ops = AugmentationOps(self.opt.batch_size)
+        
         self.models["encoder"] = networks.LiteMono(model=self.opt.model,
                                                    drop_path_rate=self.opt.drop_path,
                                                    width=self.opt.width, height=self.opt.height)
 
         self.models["encoder"].to(self.device)
         self.parameters_to_train += list(self.models["encoder"].parameters())
-
+        
         self.models["depth"] = networks.DepthDecoder(self.models["encoder"].num_ch_enc,
                                                      self.opt.scales)
         self.models["depth"].to(self.device)
@@ -136,11 +138,7 @@ class Trainer:
         if self.opt.mypretrain is not None:
             self.load_pretrain()
 
-        print("Training model named:\n  ", self.opt.model_name)
-        print("Models and tensorboard events files are saved to:\n  ", self.opt.log_dir)
-        print("Training is using:\n  ", self.device)
-
-        # data
+        # region - dataloader
         datasets_dict = {"kitti": datasets.KITTIRAWDataset,
                          "kitti_odom": datasets.KITTIOdomDataset}
         self.dataset = datasets_dict[self.opt.dataset]
@@ -154,18 +152,25 @@ class Trainer:
         num_train_samples = len(train_filenames)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
-        train_dataset = self.dataset(
-            self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
-        self.train_loader = DataLoader(
-            train_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        val_dataset = self.dataset(
-            self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
-        self.val_loader = DataLoader(
-            val_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+        train_dataset = self.dataset(self.opt.data_path, train_filenames, 
+                                     self.opt.height, self.opt.width, 
+                                     self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
+        self.train_loader = DataLoader(train_dataset, self.opt.batch_size, True,
+                                       num_workers=self.opt.num_workers, 
+                                       pin_memory=True, 
+                                       drop_last=True,
+                                       persistent_workers=True,
+                                       prefetch_factor=self.opt.num_workers)
+        
+        val_dataset = self.dataset(self.opt.data_path, val_filenames, 
+                                   self.opt.height, self.opt.width,
+                                   self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
+        self.val_loader = DataLoader(val_dataset, self.opt.batch_size, True,
+                                     num_workers=self.opt.num_workers, 
+                                     pin_memory=True, 
+                                     drop_last=True,
+                                    persistent_workers=True,
+                                    prefetch_factor=self.opt.num_workers)
         self.val_iter = iter(self.val_loader)
 
         self.writers = {}
@@ -191,9 +196,28 @@ class Trainer:
         self.depth_metric_names = [
             "de/abs_rel", "de/sq_rel", "de/rms", "de/log_rms", "da/a1", "da/a2", "da/a3"]
 
-        print("Using split:\n  ", self.opt.split)
-        print("There are {:d} training items and {:d} validation items\n".format(
-            len(train_dataset), len(val_dataset)))
+        
+        print('----------------------------------------------------------')
+        enc_total_params = sum(p.numel() for p in self.models['encoder'].parameters())
+        enc_trainable_params = sum(p.numel() for p in self.models['encoder'].parameters() if p.requires_grad)
+        enc_frozen_params = sum(p.numel() for p in self.models['encoder'].parameters() if not p.requires_grad)
+        dec_total_params = sum(p.numel() for p in self.models['depth'].parameters())
+        dec_trainable_params = sum(p.numel() for p in self.models['depth'].parameters() if p.requires_grad)
+        dec_frozen_params = sum(p.numel() for p in self.models['depth'].parameters() if not p.requires_grad)
+
+        # flop_sample = torch.randn(1, 3, 192, 640).to(self.device)
+        # flops, _ = profile(self.models['encoder'], inputs=(flop_sample, ))
+        # print(f"✅ Encoder FLOPs: {flops / 1e9:.2f} GFLOPs")
+        print(f"✅ Encoder/Decoder 전체 파라미터 개수: {enc_total_params:,} params/{dec_total_params:,} params")
+        print(f"✅ Encoder/Decoder 학습 가능한 파라미터 개수: {enc_trainable_params:,} params/{dec_trainable_params:,} params")
+        print(f"✅ Encoder/Decoder 고정된 파라미터 개수: {enc_frozen_params:,} params/{dec_frozen_params:,} params")
+        print(f"✅ Training model named: {self.opt.model_name}")
+        print(f"✅ Models and tensorboard events files are saved to: {self.opt.log_dir}")
+        print(f"✅ Training is using: {self.device.type}")
+        print(f"✅ Using split: {self.opt.split}")
+        print(f"✅ There are {len(train_dataset):d} training items and {len(val_dataset):d} validation items")
+        # del flop_sample
+        print('----------------------------------------------------------')
 
         self.save_opts()
 
@@ -220,11 +244,11 @@ class Trainer:
             if (self.epoch + 1) % self.opt.save_frequency == 0:
                 self.save_model()
 
+    # region - train
     def run_epoch(self):
         """Run a single epoch of training and validation
         """
 
-        print("Training")
         self.set_train()
 
         self.model_lr_scheduler.step()
@@ -232,11 +256,11 @@ class Trainer:
             self.model_pose_lr_scheduler.step()
 
         for batch_idx, inputs in enumerate(self.train_loader):
-
+            # self.augmentation_ops(inputs)
+            
             before_op_time = time.time()
-
             outputs, losses = self.process_batch(inputs)
-
+            
             self.model_optimizer.zero_grad()
             if self.use_pose_net:
                 self.model_pose_optimizer.zero_grad()
@@ -246,13 +270,14 @@ class Trainer:
                 self.model_pose_optimizer.step()
 
             duration = time.time() - before_op_time
-
             # log less frequently after the first 2000 steps to save time & disk space
             early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < 20000
-            late_phase = self.step % 2000 == 0
+            # late_phase = self.step % 2000 == 0
+            late_phase = self.step % 100 == 0
 
             if early_phase or late_phase:
-                self.log_time(batch_idx, duration, losses["loss"].cpu().data)
+                # self.log_time(batch_idx, duration, losses["loss"].cpu().data)
+                self.log_time(batch_idx, duration, losses["loss"].data)
 
                 if "depth_gt" in inputs:
                     self.compute_depth_losses(inputs, outputs, losses)
@@ -262,6 +287,7 @@ class Trainer:
 
             self.step += 1
 
+    # region - process batch
     def process_batch(self, inputs):
         """Pass a minibatch through the network and generate images and losses
         """
@@ -282,9 +308,7 @@ class Trainer:
             outputs = self.models["depth"](features[0])
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
-
             features = self.models["encoder"](inputs["color_aug", 0, 0])
-
             outputs = self.models["depth"](features)
 
         if self.opt.predictive_mask:
@@ -297,6 +321,7 @@ class Trainer:
         losses = self.compute_losses(inputs, outputs)
 
         return outputs, losses
+
 
     def predict_poses(self, inputs, features):
         """Predict poses between input frames for monocular sequences.
@@ -356,15 +381,17 @@ class Trainer:
 
         return outputs
 
+    # region - val
     def val(self):
         """Validate the model on a single minibatch
         """
         self.set_eval()
         try:
-            inputs = self.val_iter.next()
+            inputs = next(self.val_iter)
         except StopIteration:
             self.val_iter = iter(self.val_loader)
-            inputs = self.val_iter.next()
+            # inputs = self.val_iter.next()
+            inputs = next(self.val_iter)
 
         with torch.no_grad():
             outputs, losses = self.process_batch(inputs)
@@ -377,6 +404,8 @@ class Trainer:
 
         self.set_train()
 
+
+    # region - image pred
     def generate_images_pred(self, inputs, outputs):
         """Generate the warped (reprojected) color images for a minibatch.
         Generated images are saved into the `outputs` dictionary.
@@ -570,8 +599,7 @@ class Trainer:
         """
         samples_per_sec = self.opt.batch_size / duration
         time_sofar = time.time() - self.start_time
-        training_time_left = (
-            self.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
+        training_time_left = (self.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
         print_string = "epoch {:>3} | lr {:.6f} |lr_p {:.6f} | batch {:>6} | examples/s: {:5.1f}" + \
             " | loss: {:.5f} | time elapsed: {} | time left: {}"
         print(print_string.format(self.epoch, self.model_optimizer.state_dict()['param_groups'][0]['lr'],

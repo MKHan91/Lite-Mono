@@ -1,14 +1,17 @@
 from __future__ import absolute_import, division, print_function
 
 import os
+import os.path as osp
 import skimage.transform
 import numpy as np
 import PIL.Image as pil
 
 from kitti_utils import generate_depth_map
+# from .mono_dataset_gpu import MonoDataset
 from .mono_dataset import MonoDataset
 
 
+# region - Dataset
 class KITTIDataset(MonoDataset):
     """Superclass for different types of KITTI dataset loaders
     """
@@ -23,19 +26,20 @@ class KITTIDataset(MonoDataset):
         self.full_res_shape = (1242, 375)
         self.side_map = {"2": 2, "3": 3, "l": 2, "r": 3}
 
+
     def check_depth(self):
         line = self.filenames[0].split()
         scene_name = line[0]
         frame_index = int(line[1])
 
-        velo_filename = os.path.join(
-            self.data_path,
-            scene_name,
+        velo_filename = osp.join(self.data_path, scene_name,
             "velodyne_points/data/{:010d}.bin".format(int(frame_index)))
 
-        return os.path.isfile(velo_filename)
+        return osp.isfile(velo_filename)
+
 
     def get_color(self, folder, frame_index, side, do_flip):
+    # def get_color(self, folder, frame_index, side):
         color = self.loader(self.get_image_path(folder, frame_index, side))
 
         if do_flip:
@@ -44,22 +48,26 @@ class KITTIDataset(MonoDataset):
         return color
 
 
+# region - RAW Dataset
 class KITTIRAWDataset(KITTIDataset):
     """KITTI dataset which loads the original velodyne depth maps for ground truth
     """
     def __init__(self, *args, **kwargs):
         super(KITTIRAWDataset, self).__init__(*args, **kwargs)
 
+
     def get_image_path(self, folder, frame_index, side):
         f_str = "{:010d}{}".format(frame_index, self.img_ext)
-        image_path = os.path.join(
+        image_path = osp.join(
             self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
         return image_path
 
-    def get_depth(self, folder, frame_index, side, do_flip):
-        calib_path = os.path.join(self.data_path, folder.split("/")[0])
 
-        velo_filename = os.path.join(
+    def get_depth(self, folder, frame_index, side, do_flip):
+    # def get_depth(self, folder, frame_index, side):
+        calib_path = osp.join(self.data_path, folder.split("/")[0])
+
+        velo_filename = osp.join(
             self.data_path,
             folder,
             "velodyne_points/data/{:010d}.bin".format(int(frame_index)))
@@ -82,7 +90,7 @@ class KITTIOdomDataset(KITTIDataset):
 
     def get_image_path(self, folder, frame_index, side):
         f_str = "{:06d}{}".format(frame_index, self.img_ext)
-        image_path = os.path.join(
+        image_path = osp.join(
             self.data_path,
             "sequences/{:02d}".format(int(folder)),
             "image_{}".format(self.side_map[side]),
@@ -90,24 +98,28 @@ class KITTIOdomDataset(KITTIDataset):
         return image_path
 
 
+# region - Depth Dataset
 class KITTIDepthDataset(KITTIDataset):
     """KITTI dataset which uses the updated ground truth depth maps
     """
     def __init__(self, *args, **kwargs):
         super(KITTIDepthDataset, self).__init__(*args, **kwargs)
 
+
     def get_image_path(self, folder, frame_index, side):
         f_str = "{:010d}{}".format(frame_index, self.img_ext)
-        image_path = os.path.join(
+        image_path = osp.join(
             self.data_path,
             folder,
             "image_0{}/data".format(self.side_map[side]),
             f_str)
         return image_path
 
+
     def get_depth(self, folder, frame_index, side, do_flip):
+    # def get_depth(self, folder, frame_index, side):
         f_str = "{:010d}.png".format(frame_index)
-        depth_path = os.path.join(
+        depth_path = osp.join(
             self.data_path,
             folder,
             "proj_depth/groundtruth/image_0{}".format(self.side_map[side]),

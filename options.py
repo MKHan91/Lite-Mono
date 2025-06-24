@@ -2,25 +2,27 @@ from __future__ import absolute_import, division, print_function
 
 import os
 import argparse
+import os.path as osp
+# FILE_DIR = osp.dirname(__file__)  # the directory that options.py resides in
 
-file_dir = os.path.dirname(__file__)  # the directory that options.py resides in
-
+FILE_DIR = osp.join(os.getcwd(), 'DATASET')
+LOG_DIR = osp.join(os.getcwd(), "Lite_Mono")
 
 class LiteMonoOptions:
     def __init__(self):
         self.parser = argparse.ArgumentParser(description="Lite-Mono options")
 
-        # PATHS
+        # region - PATHS
         self.parser.add_argument("--data_path",
                                  type=str,
                                  help="path to the training data",
-                                 default=os.path.join(file_dir, "kitti_data"))
+                                 default=osp.join(FILE_DIR, "kitti_data"))
         self.parser.add_argument("--log_dir",
                                  type=str,
                                  help="log directory",
-                                 default="./tmp")
+                                 default=osp.join(LOG_DIR, "experiments", "proposal2"))
 
-        # TRAINING options
+        # region - TRAINING
         self.parser.add_argument("--model_name",
                                  type=str,
                                  help="the name of the folder to save the model in",
@@ -95,7 +97,7 @@ class LiteMonoOptions:
                                  help="profile once at the beginning of the training",
                                  default=True)
 
-        # OPTIMIZATION options
+        # region - OPTIMIZATION
         self.parser.add_argument("--batch_size",
                                  type=int,
                                  help="batch size",
@@ -117,7 +119,7 @@ class LiteMonoOptions:
                                  help="step size of the scheduler",
                                  default=15)
 
-        # ABLATION options
+        # region - ABLATION
         self.parser.add_argument("--v1_multiscale",
                                  help="if set, uses monodepth v1 multiscale",
                                  action="store_true")
@@ -152,16 +154,16 @@ class LiteMonoOptions:
                                  default="separate_resnet",
                                  choices=["posecnn", "separate_resnet", "shared"])
 
-        # SYSTEM options
+        # region - SYSTEM
         self.parser.add_argument("--no_cuda",
                                  help="if set disables CUDA",
                                  action="store_true")
         self.parser.add_argument("--num_workers",
                                  type=int,
                                  help="number of dataloader workers",
-                                 default=12)
+                                 default=8)
 
-        # LOADING options
+        # region - LOADING
         self.parser.add_argument("--load_weights_folder",
                                  type=str,
                                  help="name of model to load")
@@ -171,7 +173,7 @@ class LiteMonoOptions:
                                  help="models to load",
                                  default=["encoder", "depth", "pose_encoder", "pose"])
 
-        # LOGGING options
+        # region - LOGGING
         self.parser.add_argument("--log_frequency",
                                  type=int,
                                  help="number of batches between each tensorboard log",
@@ -181,7 +183,7 @@ class LiteMonoOptions:
                                  help="number of epochs between each save",
                                  default=1)
 
-        # EVALUATION options
+        # region - EVALUATION
         self.parser.add_argument("--disable_median_scaling",
                                  help="if set disables median scaling in evaluation",
                                  action="store_true")

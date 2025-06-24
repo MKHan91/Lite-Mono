@@ -162,6 +162,7 @@ class Conv3x3(nn.Module):
     def forward(self, x):
         out = self.pad(x)
         out = self.conv(out)
+        
         return out
 
 
@@ -254,6 +255,7 @@ class SSIM(nn.Module):
         self.sig_x_pool  = nn.AvgPool2d(3, 1)
         self.sig_y_pool  = nn.AvgPool2d(3, 1)
         self.sig_xy_pool = nn.AvgPool2d(3, 1)
+        # self.avg_pool = nn.AvgPool2d(3, 1)
 
         self.refl = nn.ReflectionPad2d(1)
 
@@ -266,10 +268,17 @@ class SSIM(nn.Module):
 
         mu_x = self.mu_x_pool(x)
         mu_y = self.mu_y_pool(y)
-
+        
         sigma_x  = self.sig_x_pool(x ** 2) - mu_x ** 2
         sigma_y  = self.sig_y_pool(y ** 2) - mu_y ** 2
         sigma_xy = self.sig_xy_pool(x * y) - mu_x * mu_y
+        
+        # mu_x = self.avg_pool(x)
+        # mu_y = self.avg_pool(x)
+        
+        # sigma_x  = self.avg_pool(x ** 2) - mu_x ** 2
+        # sigma_y  = self.avg_pool(y ** 2) - mu_y ** 2
+        # sigma_xy = self.avg_pool(x * y) - mu_x * mu_y
 
         SSIM_n = (2 * mu_x * mu_y + self.C1) * (2 * sigma_xy + self.C2)
         SSIM_d = (mu_x ** 2 + mu_y ** 2 + self.C1) * (sigma_x + sigma_y + self.C2)

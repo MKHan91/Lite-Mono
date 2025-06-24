@@ -25,12 +25,15 @@ def parse_args():
         description='Simple testing function for Lite-Mono models.')
 
     parser.add_argument('--image_path', type=str,
-                        help='path to a test image or folder of images', required=True)
+                        help='path to a test image or folder of images',
+                        default='/home/dev/DATASET/kitti_data/2011_09_26/2011_09_26_drive_0002_sync/image_02/data')
 
     parser.add_argument('--load_weights_folder', type=str,
                         help='path of a pretrained model to use',
+                        default='/home/dev/Lite_Mono/experiments/proposal/lite-mono'
                         )
-
+    parser.add_argument('--output_directory', type=str,
+                        default='/home/dev/Lite_Mono/experiments/proposal/lite-mono/results')
     parser.add_argument('--test',
                         action='store_true',
                         help='if set, read images from a .txt file',
@@ -85,6 +88,7 @@ def test_simple(args):
     model_dict = encoder.state_dict()
     encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
 
+
     encoder.to(device)
     encoder.eval()
 
@@ -129,7 +133,8 @@ def test_simple(args):
     elif os.path.isdir(args.image_path):
         # Searching folder for images
         paths = glob.glob(os.path.join(args.image_path, '*.{}'.format(args.ext)))
-        output_directory = args.image_path
+        # output_directory = args.image_path
+        output_directory = args.output_directory
     else:
         raise Exception("Can not find args.image_path: {}".format(args.image_path))
 

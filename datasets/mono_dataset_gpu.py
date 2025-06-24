@@ -20,6 +20,12 @@ def pil_loader(path):
         with Image.open(f) as img:
             return img.convert('RGB')
 
+def custom_collate(batch):
+    # 예: PIL Image 등 비표준 타입 처리
+    images = [b['image'] for b in batch]
+    labels = torch.tensor([b['label'] for b in batch])
+    return images, labels
+
 
 class MonoDataset(data.Dataset):
     """Superclass for monocular dataloaders
@@ -83,28 +89,6 @@ class MonoDataset(data.Dataset):
 
         self.load_depth = self.check_depth()
 
-    # region - preprocess
-    def preprocess(self, inputs, color_aug):
-        """Resize colour images to the required scales and augment if required
-
-        We create the color_aug object in advance and apply the same augmentation to all
-        images in this item. This ensures that all images input to the pose network receive the
-        same augmentation.
-        """
-        for k in list(inputs):
-            frame = inputs[k]
-            if "color" in k:
-                n, im, i = k
-                for i in range(self.num_scales):
-                    inputs[(n, im, i)] = self.resize[i](inputs[(n, im, i - 1)])
-
-        for k in list(inputs):
-            f = inputs[k]
-            if "color" in k:
-                n, im, i = k
-                inputs[(n, im, i)] = self.to_tensor(f)
-                inputs[(n + "_aug", im, i)] = self.to_tensor(color_aug(f))
-
 
     def __len__(self):
         return len(self.filenames)
@@ -156,9 +140,9 @@ class MonoDataset(data.Dataset):
         for i in self.frame_idxs:
             if i == "s":
                 other_side = {"r": "l", "l": "r"}[side]
-                inputs[("color", i, -1)] = self.get_color(folder, frame_index, other_side, do_flip)
+                inputs[("color", i, -1)] = self.get_color(folder, frame_index, other_side)
             else:
-                inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side, do_flip)
+                inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side)
 
         # adjusting intrinsics to match each scale in the pyramid
         for scale in range(self.num_scales):
@@ -171,7 +155,24 @@ class MonoDataset(data.Dataset):
 
             inputs[("K", scale)] = torch.from_numpy(K)
             inputs[("inv_K", scale)] = torch.from_numpy(inv_K)
+            
+            inputs[('color', -1, scale)] = np.array(self.resize[scale](inputs[('color', -1, -1)]), dtype=np.uint8)
+            inputs[('color', 0, scale)]  = np.array(self.resize[scale](inputs[('color', 0, -1)]), dtype=np.uint8)
+            inputs[('color', 1, scale)]  = np.array(self.resize[scale](inputs[('color', 1, -1)]), dtype=np.uint8)
 
+        del inputs[('color', -1, -1)]
+        del inputs[('color', 0, -1)]
+        del inputs[('color', 1, -1)]
+        
+        depth_gt = self.get_depth(folder, frame_index, side)
+        inputs["depth_gt"] = np.expand_dims(depth_gt, 0)
+        inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))
+        
+        return inputs
+        
+        
+        
+        
         if do_color_aug:
             # color_aug = transforms.ColorJitter.get_params(
             #     self.brightness, self.contrast, self.saturation, self.hue)
