@@ -102,8 +102,8 @@ def main():
 
 if __name__ == "__main__":
     experiment_dir = '/home/dev/Lite_Mono/experiments'
-    model_type = 'proposal'
-    test_image_dir = "/home/dev/DATASET/kitti_data/2011_09_26/2011_09_26_drive_0001_sync/image_02/data"
+    model_type = 'original'
+    test_image_dir = "/home/dev/Lite_Mono/datasets/kitti_data/2011_09_26/2011_09_26_drive_0001_sync/image_02/data"
     test_image_paths = glob(osp.join(test_image_dir, "*.jpg"))
     
     engine_path = osp.join(experiment_dir, model_type, 'lite-mono', f'optimized_{model_type}.engine')

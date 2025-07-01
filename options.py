@@ -5,8 +5,8 @@ import argparse
 import os.path as osp
 # FILE_DIR = osp.dirname(__file__)  # the directory that options.py resides in
 
-FILE_DIR = osp.join(os.getcwd(), 'DATASET')
-LOG_DIR = osp.join(os.getcwd(), "Lite_Mono")
+FILE_DIR = osp.join(os.getcwd(), 'datasets')
+LOG_DIR = osp.join(os.getcwd(), "experiments")
 
 class LiteMonoOptions:
     def __init__(self):
@@ -20,7 +20,7 @@ class LiteMonoOptions:
         self.parser.add_argument("--log_dir",
                                  type=str,
                                  help="log directory",
-                                 default=osp.join(LOG_DIR, "experiments", "proposal2"))
+                                 default=osp.join(LOG_DIR, "AsymDC"))
 
         # region - TRAINING
         self.parser.add_argument("--model_name",

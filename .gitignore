@@ -132,3 +132,6 @@ dmypy.json
 
 # experiment files
 experiments
+*.png
+*.jpg
+kitti_data

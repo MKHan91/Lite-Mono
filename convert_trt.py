@@ -5,7 +5,8 @@ import time
 import onnx
 
 from PIL import Image
-from networks import depth_encoder_ori, depth_encoder_v2, depth_decoder, depth_decoder_v2, depth_encoder_only_ghostinCDC
+# from networks import depth_encoder_ori, depth_encoder_v2, depth_decoder, depth_decoder_v2, depth_encoder_only_ghostinCDC
+from networks import depth_encoder_v2, depth_decoder_v2
 from glob import glob
 from torchvision import transforms
 from onnx import numpy_helper
@@ -43,7 +44,8 @@ def custom_load_state_dict(loaded_enc, loaded_dec, model_type=None):
                                                         width=640, height=192)
             decoder = depth_decoder.DepthDecoder(encoder.num_ch_enc, scales=[0, 1, 2])
         
-        elif model_type == 'proposal2':
+        # elif model_type == 'proposal2':
+        elif model_type == 'AsymDC':
             encoder = depth_encoder_v2.LiteMono(model="lite-mono",
                                                         drop_path_rate=0.2,
                                                         width=640, height=192)
@@ -207,7 +209,7 @@ def main():
 if __name__ == "__main__":
     device = 'cuda'
     # device = 'cpu'
-    model_type = 'proposal'
+    model_type = 'AsymDC'
     exp_dir = osp.join(osp.dirname(__file__), "experiments")
 
     enc_model = 'encoder.pth'

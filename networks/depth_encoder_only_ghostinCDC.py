@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from timm.models.layers import DropPath
 import math
 import torch.cuda
-from .model_utils import Conv, DepthwiseSeparableConv,InvertedBottleneck,CustomGhostModule,CoordAtt
+from .core_layer import Conv, DepthwiseSeparableConv,InvertedBottleneck,CustomGhostModule,CoordAtt
 # from .model_utils import Conv, DepthwiseSeparableConv,CustomGhostModule,CoordAtt
 
 
