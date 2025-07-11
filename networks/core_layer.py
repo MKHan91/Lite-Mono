@@ -130,25 +130,25 @@ class CDilated(nn.Module):
 
 # region - [AsymDC]
 class AsymDilatedConv(nn.Module):
-    def __init__(self, in_channels, out_channels, dilation):
+    def __init__(self, inc, outc, dilation):
         super().__init__()
-        self.expansion_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        self.expansion_conv = nn.Conv2d(inc, outc, kernel_size=1)
         
-        self.conv1x3 = nn.Conv2d(out_channels, out_channels, 
+        self.conv1x3 = nn.Conv2d(outc, outc, 
                                  kernel_size=(1, 3),
                                  padding=(0, 1))
-        self.conv3x1 = nn.Conv2d(out_channels, out_channels, 
+        self.conv3x1 = nn.Conv2d(outc, outc, 
                                  kernel_size=(3, 1),
                                  padding=(1, 0))
-        self.conv3x3 = nn.Conv2d(out_channels, out_channels, 
+        self.conv3x3 = nn.Conv2d(outc, outc, 
                                  kernel_size=3,
                                  padding=dilation,
                                  dilation=dilation)
-        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.bn1 = nn.BatchNorm2d(outc)
         self.act = nn.GELU()
         
-        self.reduction_conv = nn.Conv2d(out_channels, in_channels, kernel_size=1)
-        self.bn2 = nn.BatchNorm2d(in_channels)
+        self.reduction_conv = nn.Conv2d(outc, inc, kernel_size=1)
+        self.bn2 = nn.BatchNorm2d(inc)
     
     def forward(self, x):
         # 채널 확장 (64 -> 128 -> 256)
@@ -283,21 +283,20 @@ class LGFI(nn.Module):
     
 # region - [Ghost]
 class CustomGhostModule(nn.Module):
-    def __init__(self, in_channels, out_channels, exp=1):
+    def __init__(self, inc, outc, exp=1):
         super().__init__()
         self.exp = exp
-        self.in_channels = in_channels
-        self.out_channels = out_channels
+        self.inc = inc
+        self.outc = outc
         
-        self.conv1 = nn.Conv2d(in_channels, out_channels, 
-                               kernel_size=1, bias=False)
-        self.conv1_bn = nn.BatchNorm2d(out_channels, eps=1e-3, momentum=0.999)
+        self.conv1 = nn.Conv2d(inc, outc, kernel_size=1, bias=False)
+        self.conv1_bn = nn.BatchNorm2d(outc, eps=1e-3, momentum=0.999)
         
-        self.conv2 = nn.Conv2d(out_channels, out_channels, 
-                               kernel_size=3, padding=1, 
-                               bias=False)
-        self.conv2_bn = nn.BatchNorm2d(out_channels, eps=1e-3, momentum=0.999)
-                                           
+        self.conv2 = nn.Conv2d(outc, outc, kernel_size=3, padding=1, bias=False)
+        self.conv2_bn = nn.BatchNorm2d(outc, eps=1e-3, momentum=0.999)
+
+        self.conv3 = nn.Conv2d(outc, inc, kernel_size=1, bias=False)
+        
         
     def forward(self, x):
         x_1x1 = self.conv1(x)
@@ -306,9 +305,10 @@ class CustomGhostModule(nn.Module):
         x_3x3 = self.conv2(x_1x1)
         x_3x3 = self.conv2_bn(x_3x3)
         
-        return torch.cat([x_1x1, x_3x3], dim=1)
+        x_3x3 = self.conv3(x_3x3)
         
-
+        return x_3x3
+    
 # region - IB
 # class InvertedBottleneck(nn.Module):
 #     def __init__(self, in_channels, out_channels, expansion=6, kernel_size=3, stride=1, dilation=1, bn_act=False):

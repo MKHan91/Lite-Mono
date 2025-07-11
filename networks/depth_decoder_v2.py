@@ -13,18 +13,19 @@ class DepthDecoder(nn.Module):
         self.upsample_mode = 'bilinear'
         self.scales = scales
 
-        self.num_ch_enc = num_ch_enc
-        self.num_ch_dec = (self.num_ch_enc / 2).astype('int')
+        self.num_ch_enc = num_ch_enc # [32, 64, 128]
+        self.num_ch_dec = (self.num_ch_enc / 2).astype('int') # [16, 32, 64]
 
         # decoder
         self.convs = OrderedDict()
         for i in range(2, -1, -1):
-            # upconv_0
+        # for i in range(3, -1, -1):
+
             num_ch_in = self.num_ch_enc[-1] if i == 2 else self.num_ch_dec[i + 1]
             num_ch_out = self.num_ch_dec[i]
             self.convs[("upconv", i, 0)] = ConvBlock(num_ch_in, num_ch_out)
-            # print(i, num_ch_in, num_ch_out)
-            # upconv_1
+
+
             num_ch_in = self.num_ch_dec[i]
             if self.use_skips and i > 0:
                 num_ch_in += (self.num_ch_enc[i - 1])
@@ -48,31 +49,55 @@ class DepthDecoder(nn.Module):
 
     def forward(self, input_features):
         # self.outputs = {}
-        stage2_ds4, stage3_ds8_10, stage4_ds16_10 = input_features
+        # stage2_ds4, stage3_ds8_10, stage4_ds16_10 = input_features
+        ds4, ds8_core2, ds16_core = input_features
         
-        upstage2 = self.convs[("upconv", 2, 0)](stage4_ds16_10) # (64, 12, 40)
+        upstage2 = self.convs[("upconv", 2, 0)](ds16_core) # (64, 12, 40)
         upstage2 = F.interpolate(upstage2, scale_factor=2, mode='bilinear') # (64, 24, 80)
-        upstage2 = torch.cat([upstage2, stage3_ds8_10], dim=1) # (144, 24, 80)
+        upstage2 = torch.cat([upstage2, ds8_core2], dim=1) # (128, 24, 80)
         upstage2 = self.convs[("upconv", 2, 1)](upstage2) # (64, 24, 80)
         upstage2_fin = self.convs[("dispconv", 2)](upstage2) # (1, 24, 80)
         upstage2_fin = F.interpolate(upstage2_fin, scale_factor=2, mode='bilinear')
         upstage2_fin = nn.Sigmoid()(upstage2_fin) # (1, 48, 160)
         
-        upstage1 = self.convs[("upconv", 1, 0)](upstage2) # (40, 24, 80)
-        upstage1 = F.interpolate(upstage1, scale_factor=2, mode='bilinear') # (40, 48, 160)
-        upstage1 = torch.cat([upstage1, stage2_ds4], dim=1) # (112, 48, 160)
-        upstage1 = self.convs[("upconv", 1, 1)](upstage1)
-        upstage1_fin = self.convs[("dispconv", 1)](upstage1)
+        upstage1 = self.convs[("upconv", 1, 0)](upstage2) # (32, 24, 80)
+        upstage1 = F.interpolate(upstage1, scale_factor=2, mode='bilinear') # (32, 48, 160)
+        upstage1 = torch.cat([upstage1, ds4], dim=1) # (64, 48, 160)
+        upstage1 = self.convs[("upconv", 1, 1)](upstage1) # (32, 48, 160)
+        upstage1_fin = self.convs[("dispconv", 1)](upstage1) # (1, 48, 160)
         upstage1_fin = F.interpolate(upstage1_fin, scale_factor=2, mode='bilinear')
-        upstage1_fin = nn.Sigmoid()(upstage1_fin)
+        upstage1_fin = nn.Sigmoid()(upstage1_fin) # (1, 96, 320)
         
-        upstage0 = self.convs[("upconv", 0, 0)](upstage1)
-        upstage0 = F.interpolate(upstage0, scale_factor=2, mode='bilinear')
-        upstage0 = torch.cat([upstage0], dim=1)
-        upstage0 = self.convs[("upconv", 0, 1)](upstage0)
-        upstage0_fin = self.convs[("dispconv", 0)](upstage0)
+        upstage0 = self.convs[("upconv", 0, 0)](upstage1) # (16, 48, 160)
+        upstage0 = F.interpolate(upstage0, scale_factor=2, mode='bilinear') # (16, 96, 320)
+        upstage0 = self.convs[("upconv", 0, 1)](upstage0) # (16, 96, 320)
+        upstage0_fin = self.convs[("dispconv", 0)](upstage0) # (1, 96, 320)
         upstage0_fin = F.interpolate(upstage0_fin, scale_factor=2, mode='bilinear')
-        upstage0_fin = nn.Sigmoid()(upstage0_fin)
+        upstage0_fin = nn.Sigmoid()(upstage0_fin) # (1, 192, 640) 
+        
+        # upstage2 = self.convs[("upconv", 2, 0)](stage4_ds16_10) # (64, 12, 40)
+        # upstage2 = F.interpolate(upstage2, scale_factor=2, mode='bilinear') # (64, 24, 80)
+        # upstage2 = torch.cat([upstage2, stage3_ds8_10], dim=1) # (144, 24, 80)
+        # upstage2 = self.convs[("upconv", 2, 1)](upstage2) # (64, 24, 80)
+        # upstage2_fin = self.convs[("dispconv", 2)](upstage2) # (1, 24, 80)
+        # upstage2_fin = F.interpolate(upstage2_fin, scale_factor=2, mode='bilinear')
+        # upstage2_fin = nn.Sigmoid()(upstage2_fin) # (1, 48, 160)
+        
+        # upstage1 = self.convs[("upconv", 1, 0)](upstage2) # (40, 24, 80)
+        # upstage1 = F.interpolate(upstage1, scale_factor=2, mode='bilinear') # (40, 48, 160)
+        # upstage1 = torch.cat([upstage1, stage2_ds4], dim=1) # (112, 48, 160)
+        # upstage1 = self.convs[("upconv", 1, 1)](upstage1)
+        # upstage1_fin = self.convs[("dispconv", 1)](upstage1)
+        # upstage1_fin = F.interpolate(upstage1_fin, scale_factor=2, mode='bilinear')
+        # upstage1_fin = nn.Sigmoid()(upstage1_fin)
+        
+        # upstage0 = self.convs[("upconv", 0, 0)](upstage1)
+        # upstage0 = F.interpolate(upstage0, scale_factor=2, mode='bilinear')
+        # upstage0 = torch.cat([upstage0], dim=1)
+        # upstage0 = self.convs[("upconv", 0, 1)](upstage0)
+        # upstage0_fin = self.convs[("dispconv", 0)](upstage0)
+        # upstage0_fin = F.interpolate(upstage0_fin, scale_factor=2, mode='bilinear')
+        # upstage0_fin = nn.Sigmoid()(upstage0_fin)
         
         
         # x = input_features[-1]

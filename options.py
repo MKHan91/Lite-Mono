@@ -20,7 +20,7 @@ class LiteMonoOptions:
         self.parser.add_argument("--log_dir",
                                  type=str,
                                  help="log directory",
-                                 default=osp.join(LOG_DIR, "AsymDC"))
+                                 default=osp.join(LOG_DIR, "proposal3"))
 
         # region - TRAINING
         self.parser.add_argument("--model_name",

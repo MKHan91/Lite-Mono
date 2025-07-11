@@ -44,8 +44,8 @@ def custom_load_state_dict(loaded_enc, loaded_dec, model_type=None):
                                                         width=640, height=192)
             decoder = depth_decoder.DepthDecoder(encoder.num_ch_enc, scales=[0, 1, 2])
         
-        # elif model_type == 'proposal2':
-        elif model_type == 'AsymDC':
+        elif model_type == 'proposal3':
+        # elif model_type == 'AsymDC':
             encoder = depth_encoder_v2.LiteMono(model="lite-mono",
                                                         drop_path_rate=0.2,
                                                         width=640, height=192)
@@ -209,7 +209,7 @@ def main():
 if __name__ == "__main__":
     device = 'cuda'
     # device = 'cpu'
-    model_type = 'AsymDC'
+    model_type = 'proposal3'
     exp_dir = osp.join(osp.dirname(__file__), "experiments")
 
     enc_model = 'encoder.pth'
