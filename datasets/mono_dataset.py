@@ -14,6 +14,8 @@ from torchvision import transforms
 from nvidia.dali import pipeline_def
 import nvidia.dali.fn as fn
 import nvidia.dali.types as types
+import h5py as h5
+
 
 def pil_loader(path):
     with open(path, 'rb') as f:
@@ -82,7 +84,11 @@ class MonoDataset(data.Dataset):
                                                interpolation=self.interp)
 
         self.load_depth = self.check_depth()
-
+        
+        
+        self.side_map = {"2": 2, "3": 3, "l": 2, "r": 3}
+        self.kitti_dataset = h5.File("/home/dev/Lite_Mono/datasets/kitti_data/kitti.hdf5", 'r')
+            
     # region - preprocess
     def preprocess(self, inputs, color_aug):
         """Resize colour images to the required scales and augment if required

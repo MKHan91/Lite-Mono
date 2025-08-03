@@ -102,7 +102,7 @@ def main():
 
 if __name__ == "__main__":
     experiment_dir = '/home/dev/Lite_Mono/experiments'
-    model_type = 'original'
+    model_type = 'proposal3'
     test_image_dir = "/home/dev/Lite_Mono/datasets/kitti_data/2011_09_26/2011_09_26_drive_0001_sync/image_02/data"
     test_image_paths = glob(osp.join(test_image_dir, "*.jpg"))
     

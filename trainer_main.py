@@ -1,11 +1,11 @@
 from __future__ import absolute_import, division, print_function
 
 
+import os.path as osp
 import time
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
-
 import json
 
 from utils import *
@@ -18,8 +18,15 @@ from linear_warmup_cosine_annealing_warm_restarts_weight_decay import ChainedSch
 # from augmentation import AugmentationOps
 from thop import profile
 # torch.backends.cudnn.benchmark = True
+import h5py as h5
 
 
+def worker_init_fn(worker_id):
+    worker_info = torch.utils.data.get_worker_info()
+    dataset = worker_info.dataset
+    dataset.kitti_hdf5 = h5.File("/home/dev/Lite_Mono/datasets/kitti_data/kitti.hdf5", 'r')
+    
+    
 def cyclize(loader):
     """ Cyclize loader """
     while True:
@@ -37,7 +44,7 @@ def time_sync():
 class Trainer:
     def __init__(self, options):
         self.opt = options
-        self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
+        self.log_path = osp.join(self.opt.log_dir, self.opt.model_name)
 
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
@@ -139,50 +146,45 @@ class Trainer:
             gamma=0.9
         )
 
-        if self.opt.load_weights_folder is not None:
-            self.load_model()
-
-        if self.opt.mypretrain is not None:
-            self.load_pretrain()
+        if self.opt.load_weights_folder is not None: self.load_model()
+        if self.opt.mypretrain is not None: self.load_pretrain()
 
         # region - dataloader
-        datasets_dict = {"kitti": datasets.KITTIRAWDataset,
-                         "kitti_odom": datasets.KITTIOdomDataset}
-        self.dataset = datasets_dict[self.opt.dataset]
+        self.dataset = datasets.KITTIDataset
 
-        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
+        fpath = osp.join(osp.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
 
         train_filenames = readlines(fpath.format("train"))
         val_filenames = readlines(fpath.format("val"))
-        img_ext = '.png' if self.opt.png else '.jpg'
 
         num_train_samples = len(train_filenames)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
         train_dataset = self.dataset(self.opt.data_path, train_filenames, 
                                      self.opt.height, self.opt.width, 
-                                     self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
+                                     self.opt.frame_ids, 4, is_train=True)
         self.train_loader = DataLoader(train_dataset, self.opt.batch_size, True,
                                        num_workers=self.opt.num_workers, 
                                        pin_memory=True, 
-                                       drop_last=True)
-                                    #    persistent_workers=True)
-                                    #    prefetch_factor=self.opt.num_workers)
+                                       drop_last=True,
+                                       persistent_workers=True,
+                                       prefetch_factor=self.opt.num_workers,
+                                       worker_init_fn=worker_init_fn)
         
         val_dataset = self.dataset(self.opt.data_path, val_filenames, 
                                    self.opt.height, self.opt.width,
-                                   self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
+                                   self.opt.frame_ids, 4, is_train=False)
         self.val_loader = DataLoader(val_dataset, self.opt.batch_size, True,
                                      num_workers=self.opt.num_workers, 
                                      pin_memory=True, 
-                                     drop_last=True)
-                                    # persistent_workers=True)
-                                    # prefetch_factor=self.opt.num_workers)
+                                     drop_last=True,
+                                    persistent_workers=True,
+                                    prefetch_factor=self.opt.num_workers)
         self.val_iter = iter(self.val_loader)
 
         self.writers = {}
         for mode in ["train", "val"]:
-            self.writers[mode] = SummaryWriter(os.path.join(self.log_path, mode))
+            self.writers[mode] = SummaryWriter(osp.join(self.log_path, mode))
 
         if not self.opt.no_ssim:
             self.ssim = SSIM()
@@ -290,7 +292,7 @@ class Trainer:
                     self.compute_depth_losses(inputs, outputs, losses)
 
                 self.log("train", inputs, outputs, losses)
-                self.val()
+                # self.val()
 
             self.step += 1
 
@@ -301,22 +303,9 @@ class Trainer:
         for key, ipt in inputs.items():
             inputs[key] = ipt.to(self.device, non_blocking=True)
 
-        if self.opt.pose_model_type == "shared":
-            # If we are using a shared encoder for both depth and pose (as advocated
-            # in monodepthv1), then all images are fed separately through the depth encoder.
-            all_color_aug = torch.cat([inputs[("color_aug", i, 0)] for i in self.opt.frame_ids])
-            all_features = self.models["encoder"](all_color_aug)
-            all_features = [torch.split(f, self.opt.batch_size) for f in all_features]
-
-            features = {}
-            for i, k in enumerate(self.opt.frame_ids):
-                features[k] = [f[i] for f in all_features]
-
-            outputs = self.models["depth"](features[0])
-        else:
-            # Otherwise, we only feed the image with frame_id 0 through the depth encoder
-            features = self.models["encoder"](inputs["color_aug", 0, 0])
-            outputs = self.models["depth"](features)
+        # Otherwise, we only feed the image with frame_id 0 through the depth encoder
+        features = self.models["encoder"](inputs["color_aug", 0, 0])
+        outputs = self.models["depth"](features)
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
@@ -563,8 +552,10 @@ class Trainer:
             norm_disp = disp / (mean_disp + 1e-7)
             smooth_loss = get_smooth_loss(norm_disp, color)
 
+            
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
             total_loss += loss
+            
             losses["loss/{}".format(scale)] = loss
 
         total_loss /= self.num_scales
@@ -651,23 +642,23 @@ class Trainer:
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with
         """
-        models_dir = os.path.join(self.log_path, "models")
-        if not os.path.exists(models_dir):
+        models_dir = osp.join(self.log_path, "models")
+        if not osp.exists(models_dir):
             os.makedirs(models_dir)
         to_save = self.opt.__dict__.copy()
 
-        with open(os.path.join(models_dir, 'opt.json'), 'w') as f:
+        with open(osp.join(models_dir, 'opt.json'), 'w') as f:
             json.dump(to_save, f, indent=2)
 
     def save_model(self):
         """Save model weights to disk
         """
-        save_folder = os.path.join(self.log_path, "models", "weights_{}".format(self.epoch))
-        if not os.path.exists(save_folder):
+        save_folder = osp.join(self.log_path, "models", "weights_{}".format(self.epoch))
+        if not osp.exists(save_folder):
             os.makedirs(save_folder)
 
         for model_name, model in self.models.items():
-            save_path = os.path.join(save_folder, "{}.pth".format(model_name))
+            save_path = osp.join(save_folder, "{}.pth".format(model_name))
             to_save = model.state_dict()
             if model_name == 'encoder':
                 # save the sizes - these are needed at prediction time
@@ -677,19 +668,19 @@ class Trainer:
             torch.save(to_save, save_path)
 
         for model_name, model in self.models_pose.items():
-            save_path = os.path.join(save_folder, "{}.pth".format(model_name))
+            save_path = osp.join(save_folder, "{}.pth".format(model_name))
             to_save = model.state_dict()
             torch.save(to_save, save_path)
 
-        save_path = os.path.join(save_folder, "{}.pth".format("adam"))
+        save_path = osp.join(save_folder, "{}.pth".format("adam"))
         torch.save(self.model_optimizer.state_dict(), save_path)
 
-        save_path = os.path.join(save_folder, "{}.pth".format("adam_pose"))
+        save_path = osp.join(save_folder, "{}.pth".format("adam_pose"))
         if self.use_pose_net:
             torch.save(self.model_pose_optimizer.state_dict(), save_path)
 
     def load_pretrain(self):
-        self.opt.mypretrain = os.path.expanduser(self.opt.mypretrain)
+        self.opt.mypretrain = osp.expanduser(self.opt.mypretrain)
         path = self.opt.mypretrain
         model_dict = self.models["encoder"].state_dict()
         pretrained_dict = torch.load(path)['model']
@@ -701,15 +692,15 @@ class Trainer:
     def load_model(self):
         """Load model(s) from disk
         """
-        self.opt.load_weights_folder = os.path.expanduser(self.opt.load_weights_folder)
+        self.opt.load_weights_folder = osp.expanduser(self.opt.load_weights_folder)
 
-        assert os.path.isdir(self.opt.load_weights_folder), \
+        assert osp.isdir(self.opt.load_weights_folder), \
             "Cannot find folder {}".format(self.opt.load_weights_folder)
         print("loading model from folder {}".format(self.opt.load_weights_folder))
 
         for n in self.opt.models_to_load:
             print("Loading {} weights...".format(n))
-            path = os.path.join(self.opt.load_weights_folder, "{}.pth".format(n))
+            path = osp.join(self.opt.load_weights_folder, "{}.pth".format(n))
 
             if n in ['pose_encoder', 'pose']:
                 model_dict = self.models_pose[n].state_dict()
@@ -726,9 +717,9 @@ class Trainer:
 
         # loading adam state
 
-        optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
-        optimizer_pose_load_path = os.path.join(self.opt.load_weights_folder, "adam_pose.pth")
-        if os.path.isfile(optimizer_load_path):
+        optimizer_load_path = osp.join(self.opt.load_weights_folder, "adam.pth")
+        optimizer_pose_load_path = osp.join(self.opt.load_weights_folder, "adam_pose.pth")
+        if osp.isfile(optimizer_load_path):
             print("Loading Adam weights")
             optimizer_dict = torch.load(optimizer_load_path)
             optimizer_pose_dict = torch.load(optimizer_pose_load_path)
