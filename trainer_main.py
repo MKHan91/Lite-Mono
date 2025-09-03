@@ -150,7 +150,8 @@ class Trainer:
         if self.opt.mypretrain is not None: self.load_pretrain()
 
         # region - dataloader
-        self.dataset = datasets.KITTIDataset
+        # self.dataset = datasets.KITTIDataset
+        self.dataset = datasets.KITTIRAWDataset
 
         fpath = osp.join(osp.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
 
@@ -163,13 +164,19 @@ class Trainer:
         train_dataset = self.dataset(self.opt.data_path, train_filenames, 
                                      self.opt.height, self.opt.width, 
                                      self.opt.frame_ids, 4, is_train=True)
+        # self.train_loader = DataLoader(train_dataset, self.opt.batch_size, True,
+        #                                num_workers=self.opt.num_workers, 
+        #                                pin_memory=True, 
+        #                                drop_last=True,
+        #                                persistent_workers=True,
+        #                                prefetch_factor=self.opt.num_workers,
+        #                                worker_init_fn=worker_init_fn)
         self.train_loader = DataLoader(train_dataset, self.opt.batch_size, True,
                                        num_workers=self.opt.num_workers, 
                                        pin_memory=True, 
                                        drop_last=True,
                                        persistent_workers=True,
-                                       prefetch_factor=self.opt.num_workers,
-                                       worker_init_fn=worker_init_fn)
+                                       prefetch_factor=self.opt.num_workers)
         
         val_dataset = self.dataset(self.opt.data_path, val_filenames, 
                                    self.opt.height, self.opt.width,

@@ -87,7 +87,7 @@ class MonoDataset(data.Dataset):
         
         
         self.side_map = {"2": 2, "3": 3, "l": 2, "r": 3}
-        self.kitti_dataset = h5.File("/home/dev/Lite_Mono/datasets/kitti_data/kitti.hdf5", 'r')
+        # self.kitti_dataset = h5.File("/home/dev/Lite_Mono/datasets/kitti_data/kitti.hdf5", 'r')
             
     # region - preprocess
     def preprocess(self, inputs, color_aug):

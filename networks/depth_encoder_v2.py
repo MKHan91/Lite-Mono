@@ -44,57 +44,37 @@ class LiteMono(nn.Module):
             assert g in ['None', 'LGFI']
 
 
-        self.avg_pool2 = clayers.AvgPool(ratio=2)
-        self.avg_pool4 = clayers.AvgPool(ratio=4)
-        self.avg_pool8 = clayers.AvgPool(ratio=8)
-
+        # self.avg_pool2 = clayers.AvgPool(ratio=2)
+        # self.avg_pool4 = clayers.AvgPool(ratio=4)
+        # self.avg_pool8 = clayers.AvgPool(ratio=8)
+        self.input_conv_s2 = clayers.StandardConv(in_chans, self.dims[0], kernel_size=3, stride=2, padding=1, bn_act=True)
+        self.input_conv_s4 = clayers.StandardConv(in_chans, self.dims[0], kernel_size=3, stride=4, padding=1, bn_act=True)
+        self.input_conv_s8 = clayers.StandardConv(in_chans, self.dims[1], kernel_size=3, stride=8, padding=1, bn_act=True)
         
-        self.init_conv = nn.Sequential(
-            clayers.StandardConv(in_chans, self.dims[0],
-                              kernel_size=3, 
-                              stride=2,
-                              padding=1, 
-                              bn_act=True)
-        )
-        self.ds_conv1 = clayers.StandardConv(self.dims[0]+3, self.dims[0],
-                                          kernel_size=3,
-                                          stride=2, 
-                                          padding=1, 
-                                          bn_act=True)
+        self.init_conv = clayers.StandardConv(in_chans, self.dims[0], kernel_size=3, stride=2,padding=1, bn_act=True)
+
+        # self.ds_conv1 = clayers.StandardConv(self.dims[0]+3, self.dims[0], kernel_size=3, stride=2, padding=1, bn_act=True)
+        self.ds_conv_3x3_32 = clayers.StandardConv(self.dims[0], self.dims[0], kernel_size=3, stride=2, padding=1, bn_act=True)
+
         self.cghost_layer = core.CustomGhostModule(self.dims[0], self.dims[0]//2)
 
-        self.ds_conv2 = clayers.StandardConv(self.dims[0], self.dims[1],
-                                          kernel_size=3,
-                                          stride=2, 
-                                          padding=1, 
-                                          bn_act=True)
+        self.ds_conv_3x3_64 = clayers.StandardConv(self.dims[0], self.dims[1], kernel_size=3, stride=2,  padding=1,  bn_act=True)
+        
         self.cghost2_layer = core.CustomGhostModule(self.dims[1], self.dims[1]//2)
 
         
-        self.downsample_layer2 = nn.Sequential(
-            clayers.StandardConv(self.dims[0]+3, self.dims[1], 
-                                 kernel_size=3, 
-                                 stride=2,
-                                 padding=1, 
-                                 bn_act=False)
-        )
+        # self.downsample_layer2 = clayers.StandardConv(self.dims[0]+3, self.dims[1], kernel_size=3, stride=2, padding=1, bn_act=False)
+        self.add_ds_conv_64 = clayers.StandardConv(self.dims[0], self.dims[1], kernel_size=3, stride=2, padding=1, bn_act=False)
         
         # self.exp_conv = clayers.StandardConv(self.dims[1], self.dims[2],
         #                                     kernel_size=1, stride=1, padding=0, bn_act=False)
         
-        self.downsample_layer3 = nn.Sequential(
-            clayers.StandardConv(self.dims[1]*2+3, self.dims[2], 
-                                 kernel_size=3, 
-                                 stride=2, 
-                                 padding=1, 
-                                 bn_act=False)
-        )
+        # self.downsample_layer3 = clayers.StandardConv(self.dims[1]*2+3, self.dims[2], kernel_size=3, stride=2, padding=1, bn_act=False)
+        self.add_ds_conv_128 = clayers.StandardConv(self.dims[1], self.dims[2], kernel_size=3, stride=2, padding=1, bn_act=False)
         
         
-        
-        self.stages = nn.ModuleList()
         dp_rates = [x.item() for x in torch.linspace(0, drop_path_rate, sum(self.depth))]
-
+        self.stages = nn.ModuleList()
         stage_blocks = [
             core.AsymDilatedConv(inc=self.dims[1], outc=self.asym_dims[0], dilation=self.dilation[0][0]),
             core.AsymDilatedConv(inc=self.dims[1], outc=self.asym_dims[0], dilation=self.dilation[0][1]),
@@ -184,34 +164,41 @@ class LiteMono(nn.Module):
     def forward(self, x):
         x = (x - 0.45) / 0.225
         
-        x_down2 = self.avg_pool2(x)
-        x_down4 = self.avg_pool4(x)
-        x_down8 = self.avg_pool8(x)
+        # x_down2 = self.avg_pool2(x)
+        # x_down4 = self.avg_pool4(x)
+        # x_down8 = self.avg_pool8(x)
+        x_down2 = self.input_conv_s2(x)
+        x_down4 = self.input_conv_s4(x)
+        x_down8 = self.input_conv_s8(x)
         
         """(32, 96, 320)"""
         ds2 = self.init_conv(x)
-        """(35, 96, 320)"""
-        ds2 = torch.cat((ds2, x_down2), dim=1)
-
+        
+        """(32, 96, 320)"""
+        ds2 = torch.add(ds2, x_down2)
+        # """(35, 96, 320)"""
+        # ds2 = torch.cat((ds2, x_down2), dim=1)
         """(32, 48, 160)"""
-        ds4 = self.ds_conv1(ds2)
+        ds4 = self.ds_conv_3x3_32(ds2)
         # ds4 = self.dw_conv(ds2)
         ds4 = self.cghost_layer(ds4)
 
         """(64, 24, 80)"""
-        ds8 = self.ds_conv2(ds4)
+        ds8 = self.ds_conv_3x3_64(ds4)
         ds8_core = self.cghost2_layer(ds8)
 
         for s in range(len(self.stages[0])-1):
             ds8_core = self.stages[0][s](ds8_core)
         ds8_core = self.stages[0][-1](ds8_core)
         
-        """(35, 48, 160)"""
-        concat_ds4 = torch.cat([ds4, x_down4], dim=1)
+        # """(35, 48, 160)"""
+        # concat_ds4 = torch.cat([ds4, x_down4], dim=1)
+        """(32, 48, 160)"""
+        ds4 = torch.add(ds4, x_down4)
         """(64, 24, 80)"""
-        ds8_core2 = self.downsample_layer2(concat_ds4)
+        ds8_core2 = self.add_ds_conv_64(ds4)
         ds8_core2 = torch.add(ds8_core, ds8_core2)
-        # """(96, 24, 80)"""
+        # """(96, 24, 80)"""00
         # ds8_core2 = self.exp_conv(ds8_2)
         
         """(64, 24, 80)"""
@@ -219,10 +206,11 @@ class LiteMono(nn.Module):
             ds8_core2 = self.stages[1][s](ds8_core2)
         ds8_core2 = self.stages[1][-1](ds8_core2)
         
-        """(131, 24, 80)"""
-        concat_ds8 = torch.cat([ds8_core, ds8_core2, x_down8], dim=1)
+        # """(131, 24, 80)"""
+        # concat_ds8 = torch.cat([ds8_core, ds8_core2, x_down8], dim=1)
+        ds8 = ds8_core + ds8_core2 + x_down8
         """(128, 12, 40)"""
-        ds16_core = self.downsample_layer3(concat_ds8)
+        ds16_core = self.add_ds_conv_128(ds8)
         
         for s in range(len(self.stages[2]) - 1):
             ds16_core = self.stages[2][s](ds16_core)

@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 
+import os.path as osp
 import time
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -37,7 +38,7 @@ def time_sync():
 class Trainer:
     def __init__(self, options):
         self.opt = options
-        self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
+        self.log_path = osp.join(self.opt.log_dir, self.opt.model_name)
 
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
@@ -150,7 +151,7 @@ class Trainer:
                          "kitti_odom": datasets.KITTIOdomDataset}
         self.dataset = datasets_dict[self.opt.dataset]
 
-        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
+        fpath = osp.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
 
         train_filenames = readlines(fpath.format("train"))
         val_filenames = readlines(fpath.format("val"))
@@ -182,7 +183,7 @@ class Trainer:
 
         self.writers = {}
         for mode in ["train", "val"]:
-            self.writers[mode] = SummaryWriter(os.path.join(self.log_path, mode))
+            self.writers[mode] = SummaryWriter(osp.join(self.log_path, mode))
 
         if not self.opt.no_ssim:
             self.ssim = SSIM()
@@ -651,23 +652,23 @@ class Trainer:
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with
         """
-        models_dir = os.path.join(self.log_path, "models")
+        models_dir = osp.join(self.log_path, "models")
         if not os.path.exists(models_dir):
             os.makedirs(models_dir)
         to_save = self.opt.__dict__.copy()
 
-        with open(os.path.join(models_dir, 'opt.json'), 'w') as f:
+        with open(osp.join(models_dir, 'opt.json'), 'w') as f:
             json.dump(to_save, f, indent=2)
 
     def save_model(self):
         """Save model weights to disk
         """
-        save_folder = os.path.join(self.log_path, "models", "weights_{}".format(self.epoch))
+        save_folder = osp.join(self.log_path, "models", "weights_{}".format(self.epoch))
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
 
         for model_name, model in self.models.items():
-            save_path = os.path.join(save_folder, "{}.pth".format(model_name))
+            save_path = osp.join(save_folder, "{}.pth".format(model_name))
             to_save = model.state_dict()
             if model_name == 'encoder':
                 # save the sizes - these are needed at prediction time
@@ -677,14 +678,14 @@ class Trainer:
             torch.save(to_save, save_path)
 
         for model_name, model in self.models_pose.items():
-            save_path = os.path.join(save_folder, "{}.pth".format(model_name))
+            save_path = osp.join(save_folder, "{}.pth".format(model_name))
             to_save = model.state_dict()
             torch.save(to_save, save_path)
 
-        save_path = os.path.join(save_folder, "{}.pth".format("adam"))
+        save_path = osp.join(save_folder, "{}.pth".format("adam"))
         torch.save(self.model_optimizer.state_dict(), save_path)
 
-        save_path = os.path.join(save_folder, "{}.pth".format("adam_pose"))
+        save_path = osp.join(save_folder, "{}.pth".format("adam_pose"))
         if self.use_pose_net:
             torch.save(self.model_pose_optimizer.state_dict(), save_path)
 
@@ -709,7 +710,7 @@ class Trainer:
 
         for n in self.opt.models_to_load:
             print("Loading {} weights...".format(n))
-            path = os.path.join(self.opt.load_weights_folder, "{}.pth".format(n))
+            path = osp.join(self.opt.load_weights_folder, "{}.pth".format(n))
 
             if n in ['pose_encoder', 'pose']:
                 model_dict = self.models_pose[n].state_dict()
@@ -726,8 +727,8 @@ class Trainer:
 
         # loading adam state
 
-        optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
-        optimizer_pose_load_path = os.path.join(self.opt.load_weights_folder, "adam_pose.pth")
+        optimizer_load_path = osp.join(self.opt.load_weights_folder, "adam.pth")
+        optimizer_pose_load_path = osp.join(self.opt.load_weights_folder, "adam_pose.pth")
         if os.path.isfile(optimizer_load_path):
             print("Loading Adam weights")
             optimizer_dict = torch.load(optimizer_load_path)

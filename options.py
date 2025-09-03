@@ -20,13 +20,13 @@ class LiteMonoOptions:
         self.parser.add_argument("--log_dir",
                                  type=str,
                                  help="log directory",
-                                 default=osp.join(LOG_DIR, "tmp"))
+                                 default=LOG_DIR)
 
         # region - TRAINING
         self.parser.add_argument("--model_name",
                                  type=str,
                                  help="the name of the folder to save the model in",
-                                 default="lite-mono")
+                                 default="lm_v2.1")
         self.parser.add_argument("--split",
                                  type=str,
                                  help="which training split to use",
