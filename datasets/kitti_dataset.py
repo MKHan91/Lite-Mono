@@ -2,15 +2,20 @@ from __future__ import absolute_import, division, print_function
 
 import os
 import os.path as osp
-import skimage.transform
+
 import numpy as np
 import PIL.Image as pil
+import skimage.transform
+import torch
+from torch.utils.data import DataLoader
+
 
 from kitti_utils import generate_depth_map
-from .mono_dataset import MonoDataset
+# from .mono_dataset import MonoDataset
+from .mono_dataset_gpu import MonoDataset, GPUDataProcessor, collate_fn
 
 
-# region - Dataset
+# region - KITTIDataset
 class KITTIDataset(MonoDataset):
     """Superclass for different types of KITTI dataset loaders
     """
@@ -38,11 +43,12 @@ class KITTIDataset(MonoDataset):
 
 
     def get_color(self, folder, frame_index, side, do_flip):
-    # def get_color(self, folder, frame_index, side):
         color = self.loader(self.get_image_path(folder, frame_index, side))
-
-        if do_flip:
-            color = color.transpose(pil.FLIP_LEFT_RIGHT)
+        if color.size != self.full_res_shape:
+            color = color.resize(self.full_res_shape, pil.BILINEAR)
+        
+        # if do_flip:
+        #     color = color.transpose(pil.FLIP_LEFT_RIGHT)
 
         return color
 
@@ -63,7 +69,6 @@ class KITTIRAWDataset(KITTIDataset):
 
 
     def get_depth(self, folder, frame_index, side, do_flip):
-    # def get_depth(self, folder, frame_index, side):
         calib_path = osp.join(self.data_path, folder.split("/")[0])
 
         velo_filename = osp.join(
@@ -71,12 +76,13 @@ class KITTIRAWDataset(KITTIDataset):
             folder,
             "velodyne_points/data/{:010d}.bin".format(int(frame_index)))
 
+        # Velodyne 포인트 클라우드에서 뎁스 맵 생성
         depth_gt = generate_depth_map(calib_path, velo_filename, self.side_map[side])
         depth_gt = skimage.transform.resize(
             depth_gt, self.full_res_shape[::-1], order=0, preserve_range=True, mode='constant')
 
-        if do_flip:
-            depth_gt = np.fliplr(depth_gt)
+        # if do_flip:
+        #     depth_gt = np.fliplr(depth_gt)
 
         return depth_gt
 
@@ -132,3 +138,70 @@ class KITTIDepthDataset(KITTIDataset):
             depth_gt = np.fliplr(depth_gt)
 
         return depth_gt
+
+
+# region - Train pipeline
+class KITTITrainingPipeline:
+    def __init__(self, dataset_type='raw', data_path="", filenames_file="",
+                 height=192, width=640, frame_idxs=[0, -1, 1], num_scales=4,
+                 batch_size=8, num_workers=4, img_ext=".png", is_train=True, device='cuda'):
+        
+        self.device = torch.device(device)
+        self.height = height
+        self.width = width
+        self.num_scales = num_scales
+        self.is_train = is_train
+        
+        with open(filenames_file, 'r') as f:
+            filenames = f.readlines()
+        filenames = [line.strip() for line in filenames]
+        
+        dataset_classes = {
+            'raw': KITTIRAWDataset,
+            'odom': KITTIOdomDataset, 
+            'depth': KITTIDepthDataset
+        }
+        
+        dataset_class = dataset_classes[dataset_type]
+        
+        self.dataset = dataset_class(
+            data_path=data_path,
+            filenames=filenames,
+            height=height,
+            width=width,
+            frame_idxs=frame_idxs,
+            num_scales=num_scales,
+            is_train=is_train
+        )
+        
+        self.dataloader = DataLoader(
+            self.dataset,
+            batch_size=batch_size,
+            shuffle=is_train,
+            num_workers=num_workers,
+            pin_memory=True,
+            collate_fn=collate_fn,
+            persistent_workers=True if num_workers > 0 else False,
+            prefetch_factor=2 if num_workers > 0 else 2
+        )
+        
+        self.gpu_processor = GPUDataProcessor(
+            height=height,
+            width=width,
+            num_scales=num_scales,
+            is_train=is_train,
+            device=self.device
+        )
+    
+    def get_dataloader(self):
+        return self.dataloader
+    
+    def process_batch(self, batch_data):
+        return self.gpu_processor.process_batch(batch_data)
+    
+    def __iter__(self):
+        for batch_data in self.dataloader:
+            yield self.process_batch(batch_data)
+    
+    def __len__(self):
+        return len(self.dataloader)

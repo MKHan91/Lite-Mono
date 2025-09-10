@@ -29,7 +29,7 @@ class LMDBDataset(Dataset):
         with self.env_image.begin(write=False) as image_txn:
             with image_txn.cursor() as cursor:
                 for key, value in cursor:
-                    img_size_list, _ = pickle.loads(value)
+                    # img_size_list, _ = pickle.loads(value)
                     self.image_keys.append(key)
                     
         with self.env_gt.begin(write=False) as gt_txn:

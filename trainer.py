@@ -159,7 +159,8 @@ class Trainer:
 
         num_train_samples = len(train_filenames)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
-
+    
+    
         train_dataset = self.dataset(self.opt.data_path, train_filenames, 
                                      self.opt.height, self.opt.width, 
                                      self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
@@ -241,18 +242,22 @@ class Trainer:
         for m in self.models.values():
             m.eval()
 
+    # region - train
     def train(self):
         """Run the entire training pipeline
         """
         self.epoch = 0
         self.step = 0
         self.start_time = time.time()
+        
+        if self.opt.resume:
+            a=1
         for self.epoch in range(self.opt.num_epochs):
             self.run_epoch()
             if (self.epoch + 1) % self.opt.save_frequency == 0:
                 self.save_model()
 
-    # region - train
+    # region - run epoch
     def run_epoch(self):
         """Run a single epoch of training and validation
         """

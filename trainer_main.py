@@ -1,30 +1,30 @@
 from __future__ import absolute_import, division, print_function
 
-
 import os.path as osp
 import time
-import torch.optim as optim
-from torch.utils.data import DataLoader
-from tensorboardX import SummaryWriter
 import json
 
+# import datasets
+from datasets import kitti_dataset as kdatasets
+import networks
 from utils import *
 from kitti_utils import *
 from layers import *
 
-import datasets
-import networks
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from tensorboardX import SummaryWriter
 from linear_warmup_cosine_annealing_warm_restarts_weight_decay import ChainedScheduler
 # from augmentation import AugmentationOps
-from thop import profile
+# from thop import profile
 # torch.backends.cudnn.benchmark = True
-import h5py as h5
+# import h5py as h5
 
 
-def worker_init_fn(worker_id):
-    worker_info = torch.utils.data.get_worker_info()
-    dataset = worker_info.dataset
-    dataset.kitti_hdf5 = h5.File("/home/dev/Lite_Mono/datasets/kitti_data/kitti.hdf5", 'r')
+# def worker_init_fn(worker_id):
+#     worker_info = torch.utils.data.get_worker_info()
+#     dataset = worker_info.dataset
+#     dataset.kitti_hdf5 = h5.File("/home/dev/Lite_Mono/datasets/kitti_data/kitti.hdf5", 'r')
     
     
 def cyclize(loader):
@@ -44,7 +44,7 @@ def time_sync():
 class Trainer:
     def __init__(self, options):
         self.opt = options
-        self.log_path = osp.join(self.opt.log_dir, self.opt.model_name)
+        self.model_dir = osp.join(self.opt.log_dir, self.opt.model_name)
 
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
@@ -151,7 +151,7 @@ class Trainer:
 
         # region - dataloader
         # self.dataset = datasets.KITTIDataset
-        self.dataset = datasets.KITTIRAWDataset
+        # self.dataset = datasets.KITTIRAWDataset
 
         fpath = osp.join(osp.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
 
@@ -161,9 +161,34 @@ class Trainer:
         num_train_samples = len(train_filenames)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
-        train_dataset = self.dataset(self.opt.data_path, train_filenames, 
-                                     self.opt.height, self.opt.width, 
-                                     self.opt.frame_ids, 4, is_train=True)
+
+        self.train_pipeline = kdatasets.KITTITrainingPipeline(dataset_type='raw',
+                                                        data_path=self.opt.data_path,
+                                                        filenames_file=fpath.format("train"),
+                                                        height=self.opt.height,
+                                                        width=self.opt.width,
+                                                        frame_idxs=[0, -1, 1],
+                                                        num_scales=4,
+                                                        batch_size=self.opt.batch_size,
+                                                        num_workers=self.opt.num_workers,
+                                                        is_train=True,
+                                                        device='cuda')
+        self.valid_pipeline = kdatasets.KITTITrainingPipeline(dataset_type='raw',
+                                                        data_path=self.opt.data_path,
+                                                        filenames_file=fpath.format("val"),
+                                                        height=self.opt.height,
+                                                        width=self.opt.width,
+                                                        frame_idxs=[0, -1, 1],
+                                                        num_scales=4,
+                                                        batch_size=self.opt.batch_size,
+                                                        num_workers=self.opt.num_workers,
+                                                        is_train=False,
+                                                        device='cuda')
+        
+        
+        # train_dataset = self.dataset(self.opt.data_path, train_filenames, 
+        #                              self.opt.height, self.opt.width, 
+        #                              self.opt.frame_ids, 4, is_train=True)
         # self.train_loader = DataLoader(train_dataset, self.opt.batch_size, True,
         #                                num_workers=self.opt.num_workers, 
         #                                pin_memory=True, 
@@ -171,12 +196,12 @@ class Trainer:
         #                                persistent_workers=True,
         #                                prefetch_factor=self.opt.num_workers,
         #                                worker_init_fn=worker_init_fn)
-        self.train_loader = DataLoader(train_dataset, self.opt.batch_size, True,
-                                       num_workers=self.opt.num_workers, 
-                                       pin_memory=True, 
-                                       drop_last=True,
-                                       persistent_workers=True,
-                                       prefetch_factor=self.opt.num_workers)
+        # self.train_loader = DataLoader(train_dataset, self.opt.batch_size, True,
+        #                                num_workers=self.opt.num_workers, 
+        #                                pin_memory=True, 
+        #                                drop_last=True,
+        #                                persistent_workers=True,
+        #                                prefetch_factor=self.opt.num_workers)
         
         val_dataset = self.dataset(self.opt.data_path, val_filenames, 
                                    self.opt.height, self.opt.width,
@@ -191,7 +216,7 @@ class Trainer:
 
         self.writers = {}
         for mode in ["train", "val"]:
-            self.writers[mode] = SummaryWriter(osp.join(self.log_path, mode))
+            self.writers[mode] = SummaryWriter(osp.join(self.model_dir, mode))
 
         if not self.opt.no_ssim:
             self.ssim = SSIM()
@@ -231,7 +256,7 @@ class Trainer:
         print(f"✅ Models and tensorboard events files are saved to: {self.opt.log_dir}")
         print(f"✅ Training is using: {self.device.type}")
         print(f"✅ Using split: {self.opt.split}")
-        print(f"✅ There are {len(train_dataset):d} training items and {len(val_dataset):d} validation items")
+        # print(f"✅ There are {len(train_dataset):d} training items and {len(val_dataset):d} validation items")
         # del flop_sample
         print('----------------------------------------------------------')
 
@@ -249,18 +274,19 @@ class Trainer:
         for m in self.models.values():
             m.eval()
 
+    # region - train
     def train(self):
         """Run the entire training pipeline
         """
         self.epoch = 0
         self.step = 0
         self.start_time = time.time()
-        for self.epoch in range(self.opt.num_epochs):
+        for self.epoch in range(self.epoch, self.opt.num_epochs):
             self.run_epoch()
             if (self.epoch + 1) % self.opt.save_frequency == 0:
                 self.save_model()
 
-    # region - train
+    # region - run epoch
     def run_epoch(self):
         """Run a single epoch of training and validation
         """
@@ -271,9 +297,8 @@ class Trainer:
         if self.use_pose_net:
             self.model_pose_lr_scheduler.step()
         
-        for batch_idx, inputs in enumerate(cyclize(self.train_loader)):
-            # self.augmentation_ops(inputs)
-            
+        # for batch_idx, inputs in enumerate(cyclize(self.train_loader)):
+        for batch_idx, inputs in enumerate(self.train_pipeline):
             before_op_time = time.time()
             outputs, losses = self.process_batch(inputs)
             
@@ -299,7 +324,7 @@ class Trainer:
                     self.compute_depth_losses(inputs, outputs, losses)
 
                 self.log("train", inputs, outputs, losses)
-                # self.val()
+                self.val()
 
             self.step += 1
 
@@ -389,12 +414,15 @@ class Trainer:
         """Validate the model on a single minibatch
         """
         self.set_eval()
-        try:
-            inputs = next(self.val_iter)
-        except StopIteration:
-            self.val_iter = iter(self.val_loader)
-            # inputs = self.val_iter.next()
-            inputs = next(self.val_iter)
+        valid_loader = self.valid_pipeline.get_dataloader()
+        self.val_iter = iter(valid_loader)
+        inputs = next(self.val_iter)
+        
+        # try:
+        #     inputs = next(self.val_iter)
+        # except StopIteration:
+        #     self.val_iter = iter(self.val_loader)
+        #     inputs = next(self.val_iter)
 
         with torch.no_grad():
             outputs, losses = self.process_batch(inputs)
@@ -605,11 +633,11 @@ class Trainer:
         samples_per_sec = self.opt.batch_size / duration
         time_sofar = time.time() - self.start_time
         training_time_left = (self.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
-        print_string = "epoch {:>3} | lr {:.6f} |lr_p {:.6f} | batch {:>6} | examples/s: {:5.1f}" + \
+        print_string = "epoch {:>3} | lr {:.6f} |lr_p {:.6f} | batch {:>6}/{} | examples/s: {:5.1f}" + \
             " | loss: {:.5f} | time elapsed: {} | time left: {}"
         print(print_string.format(self.epoch, self.model_optimizer.state_dict()['param_groups'][0]['lr'],
                                   self.model_pose_optimizer.state_dict()['param_groups'][0]['lr'],
-                                  batch_idx, samples_per_sec, loss,
+                                  batch_idx, len(self.train_pipeline), samples_per_sec, loss,
                                   sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
 
     def log(self, mode, inputs, outputs, losses):
@@ -646,10 +674,11 @@ class Trainer:
                         "automask_{}/{}".format(s, j),
                         outputs["identity_selection/{}".format(s)][j][None, ...], self.step)
 
+    # region - save opts
     def save_opts(self):
         """Save options to disk so we know what we ran this experiment with
         """
-        models_dir = osp.join(self.log_path, "models")
+        models_dir = osp.join(self.model_dir, "models")
         if not osp.exists(models_dir):
             os.makedirs(models_dir)
         to_save = self.opt.__dict__.copy()
@@ -657,12 +686,14 @@ class Trainer:
         with open(osp.join(models_dir, 'opt.json'), 'w') as f:
             json.dump(to_save, f, indent=2)
 
+
+    # region - save model
     def save_model(self):
         """Save model weights to disk
         """
-        save_folder = osp.join(self.log_path, "models", "weights_{}".format(self.epoch))
-        if not osp.exists(save_folder):
-            os.makedirs(save_folder)
+        save_folder = osp.join(self.model_dir, "models", "weights_{}".format(self.epoch))
+
+        os.makedirs(save_folder, exist_ok=True)
 
         for model_name, model in self.models.items():
             save_path = osp.join(save_folder, "{}.pth".format(model_name))
@@ -696,6 +727,8 @@ class Trainer:
         self.models["encoder"].load_state_dict(model_dict)
         print('mypretrain loaded.')
 
+    
+    # region - load model
     def load_model(self):
         """Load model(s) from disk
         """
@@ -735,3 +768,10 @@ class Trainer:
         else:
             print("Cannot find Adam weights so Adam is randomly initialized")
 
+
+        try:
+            epoch_str = self.opt.load_weights_folder.split("_")[-1]
+            self.epoch = int(epoch_str) + 1
+            print(f"Resumed from epoch {self.epoch}")
+        except:
+            self.epoch = 0
